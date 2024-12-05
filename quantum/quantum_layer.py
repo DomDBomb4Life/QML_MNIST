@@ -1,13 +1,11 @@
 import tensorflow as tf
 import numpy as np
 from qiskit import QuantumCircuit, Aer, execute
-from qiskit.circuit import ParameterVector
 
 class QuantumLayer(tf.keras.layers.Layer):
     def __init__(self, num_qubits=4):
         super(QuantumLayer, self).__init__()
         self.num_qubits = num_qubits
-        self.parameters = ParameterVector('theta', length=num_qubits * 2)
         self.backend = Aer.get_backend('statevector_simulator')
 
     def build(self, input_shape):
@@ -16,14 +14,31 @@ class QuantumLayer(tf.keras.layers.Layer):
             name='theta',
             shape=(self.num_qubits * 2,),
             initializer='random_uniform',
-            trainable=True
+            trainable=False  # Set to False since we'll optimize externally
         )
 
     def call(self, inputs):
-        # Prepare quantum circuit for each input sample
+        # Use tf.py_function to integrate the quantum circuit
+        outputs = tf.py_function(
+            func=self.quantum_computation,
+            inp=[inputs, self.theta],
+            Tout=tf.float32
+        )
+        outputs.set_shape((None, 1))
+        return outputs
+
+    def compute_output_shape(self, input_shape):
+        return (input_shape[0], 1)
+
+    def quantum_computation(self, inputs, theta):
+        # Convert inputs and parameters to numpy arrays
+        inputs = inputs.numpy()
+        theta = theta.numpy()
+        batch_size = inputs.shape[0]
         outputs = []
-        for input_sample in inputs:
-            # For simplicity, only use the first 'num_qubits' features
+        for idx in range(batch_size):
+            input_sample = inputs[idx]
+            # Use the first 'num_qubits' features
             input_data = input_sample[:self.num_qubits]
             qc = QuantumCircuit(self.num_qubits)
             # Encode classical data into quantum states
@@ -31,8 +46,8 @@ class QuantumLayer(tf.keras.layers.Layer):
                 qc.rx(float(input_data[i]) * np.pi, i)
             # Apply parameterized rotations
             for i in range(self.num_qubits):
-                qc.ry(self.theta[i], i)
-                qc.rz(self.theta[i + self.num_qubits], i)
+                qc.ry(float(theta[i]), i)
+                qc.rz(float(theta[i + self.num_qubits]), i)
             # Apply entangling gates
             qc.cx(0, 1)
             qc.cx(2, 3)
@@ -43,7 +58,7 @@ class QuantumLayer(tf.keras.layers.Layer):
             # Compute expectation value
             expectation = self.compute_expectation(counts)
             outputs.append([expectation])
-        return tf.convert_to_tensor(outputs, dtype=tf.float32)
+        return np.array(outputs, dtype=np.float32)
 
     def compute_expectation(self, counts):
         # Compute expectation value of Z^{\otimes n}

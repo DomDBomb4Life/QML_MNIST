@@ -33,7 +33,7 @@ def main():
 
     trainer = Trainer(
         model,
-        data=((x_train, y_train), (x_test, y_test)),
+        data=((x_train[:1000], y_train[:1000]), (x_test[:200], y_test[:200])),  # Reduced dataset for quantum mode
         data_loader=data_loader,
         epochs=epochs,
         mode=mode
@@ -43,7 +43,7 @@ def main():
 
     trainer.evaluate()
 
-    evaluator = Evaluator(model, data=(x_test, y_test))
+    evaluator = Evaluator(model, data=(x_test[:200], y_test[:200]))
     evaluator.generate_classification_report()
     evaluator.plot_confusion_matrix()
 

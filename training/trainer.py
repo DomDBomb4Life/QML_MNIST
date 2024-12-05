@@ -1,4 +1,5 @@
 import tensorflow as tf
+import numpy as np
 from quantum.quantum_optimizer import QuantumOptimizer
 
 class Trainer:
@@ -13,7 +14,8 @@ class Trainer:
             self.quantum_optimizer = QuantumOptimizer(num_qubits=4)
             self.loss_fn = tf.keras.losses.CategoricalCrossentropy()
             self.metric = tf.keras.metrics.CategoricalAccuracy()
-
+            self.theta = self.model.layers[2].theta.numpy()
+    
     def compile_model(self):
         if self.mode == 'classical':
             self.model.compile(
@@ -22,7 +24,7 @@ class Trainer:
                 metrics=['accuracy', tf.keras.metrics.Precision(), tf.keras.metrics.Recall()]
             )
         else:
-            # For quantum mode, we use a custom training loop
+            # For quantum mode, we'll manage optimization manually
             pass
 
     def train(self):
@@ -40,27 +42,28 @@ class Trainer:
             # Custom training loop for quantum model
             history = {'loss': [], 'accuracy': [], 'val_loss': [], 'val_accuracy': []}
             optimizer = tf.keras.optimizers.Adam()
+            datagen = self.data_loader.get_data_generator()
+            datagen.fit(self.x_train)
             for epoch in range(self.epochs):
                 print(f"Epoch {epoch+1}/{self.epochs}")
                 for step, (x_batch, y_batch) in enumerate(
-                    self.data_loader.get_data_generator().flow(self.x_train, self.y_train, batch_size=self.batch_size)
+                    datagen.flow(self.x_train, self.y_train, batch_size=self.batch_size)
                 ):
+                    # Forward pass
+                    predictions = self.model(x_batch, training=True)
+                    loss = self.loss_fn(y_batch, predictions)
+                    # Update non-quantum weights
                     with tf.GradientTape() as tape:
                         predictions = self.model(x_batch, training=True)
                         loss = self.loss_fn(y_batch, predictions)
-                    # Compute gradients for non-quantum layers
-                    trainable_vars = [var for var in self.model.trainable_variables if 'quantum_layer' not in var.name]
+                    trainable_vars = [var for var in self.model.trainable_variables if 'theta' not in var.name]
                     gradients = tape.gradient(loss, trainable_vars)
                     optimizer.apply_gradients(zip(gradients, trainable_vars))
-                    # Quantum optimization for QuantumLayer parameters
-                    quantum_layer = self.model.layers[2]
-                    initial_params = quantum_layer.theta.numpy()
-                    # Define cost function as Hamiltonian (simplified)
+                    # Quantum optimization
                     cost_value = loss.numpy()
-                    cost_function = PauliSumOp.from_list([('I' * self.quantum_optimizer.num_qubits, cost_value)])
-                    optimal_params = self.quantum_optimizer.optimize(cost_function, initial_params)
-                    # Update QuantumLayer parameters
-                    quantum_layer.theta.assign(optimal_params)
+                    optimal_theta = self.quantum_optimizer.optimize(cost_value, self.theta)
+                    self.model.layers[2].theta.assign(optimal_theta)
+                    self.theta = optimal_theta
                     # Update metrics
                     self.metric.update_state(y_batch, predictions)
                 # Record metrics

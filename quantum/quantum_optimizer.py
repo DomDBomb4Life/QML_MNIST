@@ -1,6 +1,6 @@
 import numpy as np
 from qiskit import Aer, QuantumCircuit
-from qiskit.opflow import PauliSumOp, StateFn, CircuitStateFn, PauliExpectation
+from qiskit.opflow import PauliSumOp
 from qiskit.algorithms import VQE
 from qiskit.algorithms.optimizers import COBYLA
 from qiskit.utils import QuantumInstance
@@ -12,7 +12,7 @@ class QuantumOptimizer:
         self.quantum_instance = QuantumInstance(self.backend)
         self.optimizer = COBYLA(maxiter=100)
     
-    def optimize(self, cost_function, initial_params):
+    def optimize(self, cost_value, initial_params):
         # Define the variational form (ansatz)
         def ansatz(params):
             qc = QuantumCircuit(self.num_qubits)
@@ -25,8 +25,8 @@ class QuantumOptimizer:
             qc.cx(2, 3)
             return qc
 
-        # Define the operator (Hamiltonian) representing the cost function
-        hamiltonian = cost_function
+        # Define the operator (Hamiltonian) as a simple PauliSumOp
+        hamiltonian = PauliSumOp.from_list([('I' * self.num_qubits, cost_value)])
 
         # Set up VQE
         vqe = VQE(

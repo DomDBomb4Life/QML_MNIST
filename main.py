@@ -1,6 +1,7 @@
 import sys
 from data_loader import DataLoader
 from models.classical_model import build_classical_model
+from models.quantum_model import build_quantum_model
 from training.trainer import Trainer
 from evaluation.evaluator import Evaluator
 from utils.logger import Logger
@@ -23,13 +24,13 @@ def main():
         print("Training Classical Model...")
         model = build_classical_model()
     elif mode == 'quantum':
-        print("Quantum mode selected, but quantum model is not implemented yet.")
-        sys.exit(0)
+        print("Training Quantum Model...")
+        model = build_quantum_model()
     else:
         print("Invalid mode selected. Defaulting to classical mode.")
         model = build_classical_model()
 
-    trainer = Trainer(model, data=((x_train, y_train), (x_test, y_test)), data_loader=data_loader, epochs=epochs)
+    trainer = Trainer(model, data=((x_train, y_train), (x_test, y_test)), data_loader=data_loader, epochs=epochs, mode=mode)
     trainer.compile_model()
     history = trainer.train()
 

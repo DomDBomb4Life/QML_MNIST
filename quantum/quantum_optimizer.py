@@ -1,25 +1,40 @@
-from qiskit.opflow import PauliSumOp, StateFn, Gradient # type: ignore
-from qiskit.algorithms import VQE # type: ignore
-from qiskit.algorithms.optimizers import COBYLA # type: ignore
-from qiskit import Aer
 import numpy as np
+from qiskit import Aer, QuantumCircuit
+from qiskit.opflow import PauliSumOp, StateFn, CircuitStateFn, PauliExpectation
+from qiskit.algorithms import VQE
+from qiskit.algorithms.optimizers import COBYLA
+from qiskit.utils import QuantumInstance
 
 class QuantumOptimizer:
-    def __init__(self, quantum_layer):
-        self.quantum_layer = quantum_layer
+    def __init__(self, num_qubits=4):
+        self.num_qubits = num_qubits
+        self.backend = Aer.get_backend('statevector_simulator')
+        self.quantum_instance = QuantumInstance(self.backend)
         self.optimizer = COBYLA(maxiter=100)
-        self.backend = Aer.get_backend('aer_simulator_statevector')
+    
+    def optimize(self, cost_function, initial_params):
+        # Define the variational form (ansatz)
+        def ansatz(params):
+            qc = QuantumCircuit(self.num_qubits)
+            # Apply parameterized gates
+            for i in range(self.num_qubits):
+                qc.ry(params[i], i)
+                qc.rz(params[i + self.num_qubits], i)
+            # Add entangling gates
+            qc.cx(0, 1)
+            qc.cx(2, 3)
+            return qc
 
-    def optimize(self, loss_function):
-        # Define the Hamiltonian (cost function) for VQE
-        hamiltonian = PauliSumOp.from_list([('Z' * self.quantum_layer.num_qubits, 1.0)])
-        # Set up the VQE algorithm
-        vqe = VQE(ansatz=self.quantum_layer.qc,
-                  optimizer=self.optimizer,
-                  quantum_instance=self.backend)
-        # Run the VQE to minimize the loss function
-        result = vqe.compute_minimum_eigenvalue(operator=hamiltonian)
-        optimal_parameters = result.optimal_point
-        # Update the parameters in the quantum layer
-        self.quantum_layer.parameters = optimal_parameters
-        return optimal_parameters
+        # Define the operator (Hamiltonian) representing the cost function
+        hamiltonian = cost_function
+
+        # Set up VQE
+        vqe = VQE(
+            ansatz=ansatz,
+            optimizer=self.optimizer,
+            quantum_instance=self.quantum_instance
+        )
+        # Run VQE to find the minimum eigenvalue
+        result = vqe.compute_minimum_eigenvalue(operator=hamiltonian, initial_point=initial_params)
+        optimal_params = result.optimal_point
+        return optimal_params

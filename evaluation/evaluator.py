@@ -34,7 +34,7 @@ class Evaluator:
         plt.tight_layout()
         plt.show()
         # Save the plot
-        plt.savefig('confusion_matrix.png')
+        plt.savefig('data/confusion_matrix.png')
 
     def save_confusion_matrix(self, normalize=False):
         y_pred = self.model.predict(self.x_test)

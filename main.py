@@ -28,9 +28,16 @@ def main():
         model = build_quantum_model()
     else:
         print("Invalid mode selected. Defaulting to classical mode.")
+        mode = 'classical'
         model = build_classical_model()
 
-    trainer = Trainer(model, data=((x_train, y_train), (x_test, y_test)), data_loader=data_loader, epochs=epochs, mode=mode)
+    trainer = Trainer(
+        model,
+        data=((x_train, y_train), (x_test, y_test)),
+        data_loader=data_loader,
+        epochs=epochs,
+        mode=mode
+    )
     trainer.compile_model()
     history = trainer.train()
 

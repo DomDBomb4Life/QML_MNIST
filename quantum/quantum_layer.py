@@ -18,14 +18,14 @@ class QuantumLayer(tf.keras.layers.Layer):
         )
 
     def call(self, inputs):
-        # Stop gradient flow through this layer
-        inputs = tf.stop_gradient(inputs)
         outputs = tf.py_function(
             func=self.quantum_computation,
             inp=[inputs, self.theta],
             Tout=tf.float32
         )
         outputs.set_shape((inputs.shape[0], 1))
+        # Stop gradient flow after this layer
+        outputs = tf.stop_gradient(outputs)
         return outputs
 
     def compute_output_shape(self, input_shape):
@@ -49,7 +49,7 @@ class QuantumLayer(tf.keras.layers.Layer):
             for i in range(self.num_qubits):
                 qc.ry(float(theta[i]), i)
                 qc.rz(float(theta[i + self.num_qubits]), i)
-            # Apply entangling gates
+            # Add entangling gates
             qc.cx(0, 1)
             qc.cx(2, 3)
             # Execute the circuit

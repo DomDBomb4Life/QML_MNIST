@@ -4,6 +4,7 @@ from qiskit.opflow import PauliSumOp
 from qiskit.algorithms import VQE
 from qiskit.algorithms.optimizers import COBYLA
 from qiskit.utils import QuantumInstance
+from qiskit.circuit import ParameterVector
 
 class QuantumOptimizer:
     def __init__(self, num_qubits=4):
@@ -12,25 +13,28 @@ class QuantumOptimizer:
         self.quantum_instance = QuantumInstance(self.backend)
         self.optimizer = COBYLA(maxiter=10)  # Reduced iterations for efficiency
 
-    def optimize(self, cost_value, initial_params):
-        # Define the variational form (ansatz)
-        def ansatz(params):
-            qc = QuantumCircuit(self.num_qubits)
-            # Apply parameterized gates
-            for i in range(self.num_qubits):
-                qc.ry(params[i], i)
-                qc.rz(params[i + self.num_qubits], i)
-            # Add entangling gates
-            qc.cx(0, 1)
-            qc.cx(2, 3)
-            return qc
+        # Define the variational form (ansatz) as a parameterized QuantumCircuit
+        self.params = ParameterVector('theta', length=self.num_qubits * 2)
+        self.ansatz = self.create_ansatz(self.params)
 
+    def create_ansatz(self, params):
+        qc = QuantumCircuit(self.num_qubits)
+        # Apply parameterized gates
+        for i in range(self.num_qubits):
+            qc.ry(params[i], i)
+            qc.rz(params[i + self.num_qubits], i)
+        # Add entangling gates
+        qc.cx(0, 1)
+        qc.cx(2, 3)
+        return qc
+
+    def optimize(self, cost_value, initial_params):
         # Define the operator (Hamiltonian) as a simple PauliSumOp
         hamiltonian = PauliSumOp.from_list([('I' * self.num_qubits, cost_value)])
 
         # Set up VQE
         vqe = VQE(
-            ansatz=ansatz,
+            ansatz=self.ansatz,
             optimizer=self.optimizer,
             quantum_instance=self.quantum_instance
         )

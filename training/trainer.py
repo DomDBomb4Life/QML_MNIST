@@ -1,6 +1,7 @@
 import tensorflow as tf
 import numpy as np
 from quantum.quantum_optimizer import QuantumOptimizer
+from quantum.quantum_layer import QuantumLayer
 
 class Trainer:
     def __init__(self, model, data, data_loader, epochs=10, batch_size=32, mode='classical'):
@@ -10,13 +11,25 @@ class Trainer:
         (self.x_train, self.y_train), (self.x_test, self.y_test) = data
         self.data_loader = data_loader
         self.mode = mode
+
         if self.mode == 'quantum':
-            self.quantum_optimizer = QuantumOptimizer(num_qubits=4)
+            # Find the QuantumLayer in the model
+            self.quantum_layer = None
+            for layer in self.model.layers:
+                if isinstance(layer, QuantumLayer):
+                    self.quantum_layer = layer
+                    break
+            if self.quantum_layer is None:
+                raise ValueError('QuantumLayer not found in the model.')
+
+            self.theta = self.quantum_layer.theta.numpy()
+            self.quantum_optimizer = QuantumOptimizer(num_qubits=self.quantum_layer.num_qubits)
             self.loss_fn = tf.keras.losses.CategoricalCrossentropy()
             self.metric = tf.keras.metrics.CategoricalAccuracy()
-            self.theta = self.model.layers[2].theta.numpy()
             self.optimizer = tf.keras.optimizers.Adam()
-        
+        else:
+            self.optimizer = None  # Not used in classical mode
+
     def compile_model(self):
         if self.mode == 'classical':
             self.model.compile(
@@ -54,13 +67,20 @@ class Trainer:
                         predictions = self.model(x_batch, training=True)
                         loss = self.loss_fn(y_batch, predictions)
                     # Update non-quantum weights
-                    trainable_vars = [var for var in self.model.trainable_variables if var.trainable]
+                    trainable_vars = [
+                        var for var in self.model.trainable_variables
+                        if var.trainable and var is not self.quantum_layer.theta
+                    ]
                     gradients = tape.gradient(loss, trainable_vars)
-                    self.optimizer.apply_gradients(zip(gradients, trainable_vars))
+                    # Filter out None gradients
+                    gradients_vars = [
+                        (grad, var) for grad, var in zip(gradients, trainable_vars) if grad is not None
+                    ]
+                    self.optimizer.apply_gradients(gradients_vars)
                     # Quantum optimization
                     cost_value = loss.numpy()
                     optimal_theta = self.quantum_optimizer.optimize(cost_value, self.theta)
-                    self.model.layers[2].theta.assign(optimal_theta)
+                    self.quantum_layer.theta.assign(optimal_theta)
                     self.theta = optimal_theta
                     # Update metrics
                     self.metric.update_state(y_batch, predictions)

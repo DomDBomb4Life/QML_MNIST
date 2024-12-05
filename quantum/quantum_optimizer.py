@@ -10,8 +10,8 @@ class QuantumOptimizer:
         self.num_qubits = num_qubits
         self.backend = Aer.get_backend('statevector_simulator')
         self.quantum_instance = QuantumInstance(self.backend)
-        self.optimizer = COBYLA(maxiter=100)
-    
+        self.optimizer = COBYLA(maxiter=10)  # Reduced iterations for efficiency
+
     def optimize(self, cost_value, initial_params):
         # Define the variational form (ansatz)
         def ansatz(params):

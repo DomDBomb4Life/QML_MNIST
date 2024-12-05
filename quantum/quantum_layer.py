@@ -18,13 +18,14 @@ class QuantumLayer(tf.keras.layers.Layer):
         )
 
     def call(self, inputs):
-        # Use tf.py_function to integrate the quantum circuit
+        # Stop gradient flow through this layer
+        inputs = tf.stop_gradient(inputs)
         outputs = tf.py_function(
             func=self.quantum_computation,
             inp=[inputs, self.theta],
             Tout=tf.float32
         )
-        outputs.set_shape((None, 1))
+        outputs.set_shape((inputs.shape[0], 1))
         return outputs
 
     def compute_output_shape(self, input_shape):

@@ -15,7 +15,8 @@ class Trainer:
             self.loss_fn = tf.keras.losses.CategoricalCrossentropy()
             self.metric = tf.keras.metrics.CategoricalAccuracy()
             self.theta = self.model.layers[2].theta.numpy()
-    
+            self.optimizer = tf.keras.optimizers.Adam()
+        
     def compile_model(self):
         if self.mode == 'classical':
             self.model.compile(
@@ -41,7 +42,6 @@ class Trainer:
         else:
             # Custom training loop for quantum model
             history = {'loss': [], 'accuracy': [], 'val_loss': [], 'val_accuracy': []}
-            optimizer = tf.keras.optimizers.Adam()
             datagen = self.data_loader.get_data_generator()
             datagen.fit(self.x_train)
             for epoch in range(self.epochs):
@@ -50,15 +50,13 @@ class Trainer:
                     datagen.flow(self.x_train, self.y_train, batch_size=self.batch_size)
                 ):
                     # Forward pass
-                    predictions = self.model(x_batch, training=True)
-                    loss = self.loss_fn(y_batch, predictions)
-                    # Update non-quantum weights
                     with tf.GradientTape() as tape:
                         predictions = self.model(x_batch, training=True)
                         loss = self.loss_fn(y_batch, predictions)
-                    trainable_vars = [var for var in self.model.trainable_variables if 'theta' not in var.name]
+                    # Update non-quantum weights
+                    trainable_vars = [var for var in self.model.trainable_variables if var.trainable]
                     gradients = tape.gradient(loss, trainable_vars)
-                    optimizer.apply_gradients(zip(gradients, trainable_vars))
+                    self.optimizer.apply_gradients(zip(gradients, trainable_vars))
                     # Quantum optimization
                     cost_value = loss.numpy()
                     optimal_theta = self.quantum_optimizer.optimize(cost_value, self.theta)

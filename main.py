@@ -23,17 +23,21 @@ def main():
     if mode == 'classical':
         print("Training Classical Model...")
         model = build_classical_model()
+        data = ((x_train, y_train), (x_test, y_test))
     elif mode == 'quantum':
         print("Training Quantum Model...")
         model = build_quantum_model()
+        # Reduced dataset for quantum mode
+        data = ((x_train[:1000], y_train[:1000]), (x_test[:200], y_test[:200]))
     else:
         print("Invalid mode selected. Defaulting to classical mode.")
         mode = 'classical'
         model = build_classical_model()
+        data = ((x_train, y_train), (x_test, y_test))
 
     trainer = Trainer(
         model,
-        data=((x_train[:1000], y_train[:1000]), (x_test[:200], y_test[:200])),  # Reduced dataset for quantum mode
+        data=data,
         data_loader=data_loader,
         epochs=epochs,
         mode=mode
@@ -43,7 +47,7 @@ def main():
 
     trainer.evaluate()
 
-    evaluator = Evaluator(model, data=(x_test[:200], y_test[:200]))
+    evaluator = Evaluator(model, data=(data[1][0], data[1][1]))
     evaluator.generate_classification_report()
     evaluator.plot_confusion_matrix()
 

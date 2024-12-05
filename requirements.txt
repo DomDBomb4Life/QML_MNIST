@@ -1,6 +1,7 @@
 tensorflow
+tensorflow-quantum
 numpy
 matplotlib
 scikit-learn
 seaborn
-qiskit==0.43.2
+cirq

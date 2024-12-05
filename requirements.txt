@@ -1,7 +1,5 @@
 tensorflow
-tensorflow-quantum
 numpy
 matplotlib
 scikit-learn
 seaborn
-cirq

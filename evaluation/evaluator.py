@@ -1,15 +1,16 @@
+import os
 import matplotlib.pyplot as plt
 import numpy as np
 from sklearn.metrics import classification_report, confusion_matrix
-import os
+import seaborn as sns
 
 class Evaluator:
     def __init__(self, model, data, save_dir='results'):
         (self.x_test, self.y_test) = data
         self.model = model
         self.save_dir = save_dir
-        if not os.path.exists(save_dir):
-            os.makedirs(save_dir)
+        if not os.path.exists(self.save_dir):
+            os.makedirs(self.save_dir)
 
     def generate_classification_report(self):
         y_pred = self.model.predict(self.x_test)
@@ -18,23 +19,25 @@ class Evaluator:
         report = classification_report(y_true, y_pred_classes, digits=4)
         print("Classification Report:")
         print(report)
-        with open(os.path.join(self.save_dir, 'classification_report.txt'), 'w') as f:
+        report_path = os.path.join(self.save_dir, 'classification_report.txt')
+        with open(report_path, 'w') as f:
             f.write(report)
 
-    def plot_confusion_matrix(self):
+    def plot_confusion_matrix(self, normalize=False, save=False):
         y_pred = self.model.predict(self.x_test)
         y_pred_classes = np.argmax(y_pred, axis=1)
         y_true = np.argmax(self.y_test, axis=1)
-        cm = confusion_matrix(y_true, y_pred_classes)
-        plt.figure(figsize=(8,6))
-        plt.imshow(cm, cmap='Blues', interpolation='nearest')
-        plt.title('Confusion Matrix')
-        plt.colorbar()
-        ticks = np.arange(10)
-        plt.xticks(ticks, ticks)
-        plt.yticks(ticks, ticks)
-        plt.xlabel('Predicted')
-        plt.ylabel('True')
+        cm = confusion_matrix(y_true, y_pred_classes, normalize='true' if normalize else None)
+        plt.figure(figsize=(8, 6))
+        sns.heatmap(cm, annot=True, fmt='.2f' if normalize else 'd', cmap='Blues')
+        plt.title('Normalized Confusion Matrix' if normalize else 'Confusion Matrix')
+        plt.xlabel('Predicted Label')
+        plt.ylabel('True Label')
+        plt.xticks(np.arange(10) + 0.5, labels=np.arange(10))
+        plt.yticks(np.arange(10) + 0.5, labels=np.arange(10), rotation=0)
         plt.tight_layout()
-        plt.savefig(os.path.join(self.save_dir, 'confusion_matrix.png'))
-        plt.close()
+        if save:
+            plt.savefig(os.path.join(self.save_dir, 'confusion_matrix.png'))
+            plt.close()
+        else:
+            plt.show()

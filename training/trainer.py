@@ -1,154 +1,144 @@
+# File: training/trainer.py
 import os
 import json
+import torch
 import numpy as np
-import tensorflow as tf
-import pennylane as qml
+from torch.utils.data import TensorDataset, DataLoader
+import torch.nn as nn
+import torch.optim as optim
 
 class Trainer:
-    def __init__(self, model, data, data_loader, mode='classical', epochs=10, batch_size=32, optimizer='adam', learning_rate=0.001, results_dir='results'):
-        (self.x_train, self.y_train), (self.x_test, self.y_test) = data
+    def __init__(self, model, train_data, test_data, mode='classical', epochs=10, batch_size=32,
+                 optimizer='adam', learning_rate=0.001, results_dir='results'):
+        (x_train, y_train) = train_data
+        (x_test, y_test) = test_data
+
         self.model = model
-        self.data_loader = data_loader
         self.mode = mode
         self.epochs = epochs
         self.batch_size = batch_size
-        self.optimizer_type = optimizer
+        self.optimizer_type = optimizer.lower()
         self.learning_rate = learning_rate
         self.results_dir = results_dir
         self.logs_path = os.path.join(self.results_dir, 'logs', f'{self.mode}_training_logs.json')
-        self.metrics_history = {"epoch": [], "train_loss": [], "train_accuracy": [], "val_loss": [], "val_accuracy": []}
+        self.metrics_history = {
+            "epoch": [],
+            "train_loss": [],
+            "train_accuracy": [],
+            "val_loss": [],
+            "val_accuracy": []
+        }
 
-    def compile_model(self):
-        if self.mode == 'classical':
-            opt = self._get_optimizer(self.optimizer_type, self.learning_rate)
-            self.model.compile(
-                optimizer=opt,
-                loss='categorical_crossentropy',
-                metrics=['accuracy']
-            )
+        # Ensure data are torch tensors
+        if not isinstance(x_train, torch.Tensor):
+            x_train = torch.from_numpy(x_train).float()
+        if not isinstance(y_train, torch.Tensor):
+            y_train = torch.from_numpy(y_train).long()
+        if not isinstance(x_test, torch.Tensor):
+            x_test = torch.from_numpy(x_test).float()
+        if not isinstance(y_test, torch.Tensor):
+            y_test = torch.from_numpy(y_test).long()
+
+        self.train_dataset = TensorDataset(x_train, y_train)
+        self.test_dataset = TensorDataset(x_test, y_test)
+        self.train_loader = DataLoader(self.train_dataset, batch_size=self.batch_size, shuffle=True)
+        self.test_loader = DataLoader(self.test_dataset, batch_size=self.batch_size, shuffle=False)
+
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.model.to(self.device)
+
+        self.loss_fn = nn.CrossEntropyLoss()
+        self.optimizer = self._get_optimizer(self.optimizer_type, self.learning_rate)
 
     def train(self):
-        if self.mode == 'classical':
-            datagen = self.data_loader.get_data_generator()
-            datagen.fit(self.x_train)
-            history = self.model.fit(
-                datagen.flow(self.x_train, self.y_train, batch_size=self.batch_size),
-                steps_per_epoch=len(self.x_train) // self.batch_size,
-                epochs=self.epochs,
-                validation_data=(self.x_test, self.y_test),
-                verbose=0
-            )
-            self._record_history_keras(history)
-            return history
+        if self.mode in ['classical', 'quantum']:
+            self._train_loop()
         else:
-            return self._train_quantum()
+            raise ValueError("Unsupported mode. Choose 'classical' or 'quantum'.")
 
-    def _train_quantum(self):
-        q_params = [v for v in self.model.trainable_variables if 'quantum_weights' in v.name]
-        c_params = [v for v in self.model.trainable_variables if 'quantum_weights' not in v.name]
+    def evaluate(self):
+        self.model.eval()
+        total_loss = 0.0
+        total_correct = 0
+        total_samples = 0
+        with torch.no_grad():
+            for inputs, labels in self.test_loader:
+                inputs, labels = inputs.to(self.device), labels.to(self.device)
+                outputs = self.model(inputs)
+                loss = self.loss_fn(outputs, labels)
+                preds = outputs.argmax(dim=1)
+                total_correct += (preds == labels).sum().item()
+                total_loss += loss.item() * inputs.size(0)
+                total_samples += inputs.size(0)
+        avg_loss = total_loss / total_samples
+        avg_acc = total_correct / total_samples
+        print(f"Test Loss: {avg_loss:.4f}, Test Accuracy: {avg_acc*100:.2f}%")
 
-        q_optimizer = qml.Adam(stepsize=self.learning_rate)
-        c_optimizer = tf.keras.optimizers.get({'class_name': self.optimizer_type, 'config': {'learning_rate': self.learning_rate}})
+    def _train_loop(self):
+        for epoch in range(1, self.epochs+1):
+            self.model.train()
+            train_loss = 0.0
+            train_correct = 0
+            total_samples = 0
 
-        train_ds = tf.data.Dataset.from_tensor_slices((self.x_train, self.y_train)).shuffle(1024).batch(self.batch_size)
-        val_ds = tf.data.Dataset.from_tensor_slices((self.x_test, self.y_test)).batch(self.batch_size)
+            for inputs, labels in self.train_loader:
+                inputs, labels = inputs.to(self.device), labels.to(self.device)
+                self.optimizer.zero_grad()
+                outputs = self.model(inputs)
+                loss = self.loss_fn(outputs, labels)
+                loss.backward()
+                self.optimizer.step()
 
-        def forward_loss(x, y, q_params_flat):
-            self._set_quantum_params(q_params, q_params_flat)
-            preds = self.model(x, training=True)
-            loss = tf.reduce_mean(tf.keras.losses.categorical_crossentropy(y, preds))
-            acc = tf.reduce_mean(tf.keras.metrics.categorical_accuracy(y, preds))
-            return loss, acc
+                train_loss += loss.item() * inputs.size(0)
+                preds = outputs.argmax(dim=1)
+                train_correct += (preds == labels).sum().item()
+                total_samples += inputs.size(0)
 
-        q_params_flat = self._flatten_params(q_params)
-        for epoch in range(self.epochs):
-            epoch_loss, epoch_acc, count = 0, 0, 0
-            for x_batch, y_batch in train_ds:
-                with tf.GradientTape() as tape:
-                    self._set_quantum_params(q_params, q_params_flat)
-                    preds = self.model(x_batch, training=True)
-                    loss = tf.reduce_mean(tf.keras.losses.categorical_crossentropy(y_batch, preds))
-                grads = tape.gradient(loss, c_params + q_params)
-                c_grads = grads[:len(c_params)]
-                q_grads = grads[len(c_params):]
+            avg_train_loss = train_loss / total_samples
+            avg_train_acc = train_correct / total_samples
 
-                c_optimizer.apply_gradients(zip(c_grads, c_params))
-                q_params_flat = q_optimizer.step(lambda p: self._quantum_cost(p, x_batch, y_batch, q_params), q_params_flat)
+            val_loss, val_acc = self._evaluate_dataset()
 
-                acc = tf.reduce_mean(tf.keras.metrics.categorical_accuracy(y_batch, preds))
-                epoch_loss += loss.numpy() * len(x_batch)
-                epoch_acc += acc.numpy() * len(x_batch)
-                count += len(x_batch)
+            self.metrics_history['epoch'].append(epoch)
+            self.metrics_history['train_loss'].append(avg_train_loss)
+            self.metrics_history['train_accuracy'].append(avg_train_acc)
+            self.metrics_history['val_loss'].append(val_loss)
+            self.metrics_history['val_accuracy'].append(val_acc)
 
-            train_loss = epoch_loss / count
-            train_acc = epoch_acc / count
+            print(f"Epoch {epoch}/{self.epochs} | "
+                  f"Train Loss: {avg_train_loss:.4f} | Train Acc: {avg_train_acc*100:.2f}% | "
+                  f"Val Loss: {val_loss:.4f} | Val Acc: {val_acc*100:.2f}%")
 
-            val_loss, val_acc = self._evaluate_dataset(val_ds, q_params, q_params_flat)
-            self._log_epoch(epoch+1, train_loss, train_acc, val_loss, val_acc)
         self._save_logs()
-        return None
 
-    def _quantum_cost(self, q_params_flat, x, y, q_params):
-        self._set_quantum_params(q_params, q_params_flat)
-        preds = self.model(x, training=True)
-        loss = tf.reduce_mean(tf.keras.losses.categorical_crossentropy(y, preds))
-        return loss.numpy()
+    def _evaluate_dataset(self):
+        self.model.eval()
+        total_loss = 0.0
+        total_correct = 0
+        total_samples = 0
+        with torch.no_grad():
+            for inputs, labels in self.test_loader:
+                inputs, labels = inputs.to(self.device), labels.to(self.device)
+                outputs = self.model(inputs)
+                loss = self.loss_fn(outputs, labels)
+                preds = outputs.argmax(dim=1)
+                total_correct += (preds == labels).sum().item()
+                total_loss += loss.item() * inputs.size(0)
+                total_samples += inputs.size(0)
 
-    def _set_quantum_params(self, q_params, q_params_flat):
-        idx = 0
-        for v in q_params:
-            shape = v.shape
-            size = np.prod(shape)
-            v.assign(tf.reshape(tf.constant(q_params_flat[idx:idx+size], dtype=tf.float32), shape))
-            idx += size
-
-    def _flatten_params(self, q_params):
-        return np.concatenate([p.numpy().flatten() for p in q_params])
-
-    def _evaluate_dataset(self, ds, q_params, q_params_flat):
-        self._set_quantum_params(q_params, q_params_flat)
-        total_loss, total_acc, count = 0, 0, 0
-        for x_batch, y_batch in ds:
-            preds = self.model(x_batch, training=False)
-            loss = tf.reduce_mean(tf.keras.losses.categorical_crossentropy(y_batch, preds)).numpy()
-            acc = tf.reduce_mean(tf.keras.metrics.categorical_accuracy(y_batch, preds)).numpy()
-            total_loss += loss * len(x_batch)
-            total_acc += acc * len(x_batch)
-            count += len(x_batch)
-        return total_loss/count, total_acc/count
-
-    def _log_epoch(self, epoch, train_loss, train_acc, val_loss, val_acc):
-        self.metrics_history['epoch'].append(epoch)
-        self.metrics_history['train_loss'].append(train_loss)
-        self.metrics_history['train_accuracy'].append(train_acc)
-        self.metrics_history['val_loss'].append(val_loss)
-        self.metrics_history['val_accuracy'].append(val_acc)
-
-    def _record_history_keras(self, history):
-        for i, epoch_num in enumerate(history.epoch):
-            self.metrics_history['epoch'].append(epoch_num+1)
-            self.metrics_history['train_loss'].append(history.history['loss'][i])
-            self.metrics_history['train_accuracy'].append(history.history['accuracy'][i])
-            self.metrics_history['val_loss'].append(history.history['val_loss'][i])
-            self.metrics_history['val_accuracy'].append(history.history['val_accuracy'][i])
-        self._save_logs()
+        avg_loss = total_loss / total_samples
+        avg_acc = total_correct / total_samples
+        return avg_loss, avg_acc
 
     def _save_logs(self):
+        os.makedirs(os.path.dirname(self.logs_path), exist_ok=True)
         with open(self.logs_path, 'w') as f:
             json.dump(self.metrics_history, f, indent=4)
 
-    def evaluate(self):
-        if self.mode == 'classical':
-            results = self.model.evaluate(self.x_test, self.y_test, verbose=0)
-            # Already logged metrics in train
-        else:
-            # Quantum evaluation handled externally
-            pass
-
     def _get_optimizer(self, optimizer_type, lr):
-        if optimizer_type.lower() == 'adam':
-            return tf.keras.optimizers.Adam(learning_rate=lr)
-        elif optimizer_type.lower() == 'sgd':
-            return tf.keras.optimizers.SGD(learning_rate=lr)
+        if optimizer_type == 'adam':
+            return optim.Adam(self.model.parameters(), lr=lr)
+        elif optimizer_type == 'sgd':
+            return optim.SGD(self.model.parameters(), lr=lr)
         else:
-            return tf.keras.optimizers.Adam(learning_rate=lr)
+            raise ValueError(f"Unsupported optimizer type: {optimizer_type}")

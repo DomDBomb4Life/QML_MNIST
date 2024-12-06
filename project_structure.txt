@@ -1,0 +1,18 @@
+.
+├─ main.py
+├─ quantum_test.py
+├─ results/
+├─ models/
+│  ├─ classical_model.py
+│  ├─ quantum_model.py
+├─ quantum/
+│  ├─ encoding.py
+│  ├─ quantum_circuit.py
+├─ training/
+│  ├─ trainer.py
+├─ evaluation/
+│  ├─ evaluator.py
+├─ utils/
+│  ├─ config.py
+│  ├─ data_loader.py
+│  ├─ logger.py

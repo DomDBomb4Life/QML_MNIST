@@ -4,14 +4,11 @@ import torch.nn as nn
 
 def build_classical_model():
     """
-    Builds a simple feedforward neural network for MNIST classification.
-    
-    Architecture:
-    - Flatten input to (batch_size, 784)
-    - Linear(784 -> 64)
-    - ReLU
-    - Linear(64 -> 10)
-    - No softmax, as CrossEntropyLoss expects raw logits
+    Builds a classical feedforward network for MNIST:
+    Input: (batch_size, 784)
+    fc1: (784->64), ReLU
+    fc2: (64->10)
+    No softmax, as CrossEntropyLoss requires logits.
     """
     class ClassicalModel(nn.Module):
         def __init__(self):
@@ -22,12 +19,11 @@ def build_classical_model():
             self.fc2 = nn.Linear(64, 10)
 
         def forward(self, x):
-            # If x is (batch_size, 784), flatten will be no-op. Otherwise, ensures correct shape.
             x = self.flatten(x)
             x = self.fc1(x)
             x = self.relu(x)
             x = self.fc2(x)
-            # No softmax here, CrossEntropyLoss expects logits
+            # No softmax
             return x
 
     return ClassicalModel()

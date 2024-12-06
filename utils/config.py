@@ -1,92 +1,128 @@
-import json
 import os
+import json
 
 class Config:
+    """
+    Configuration class for managing training parameters.
+    """
     def __init__(self, config_path='config.json', cli_args=None):
         self.cli_args = cli_args if cli_args else {}
+        
+        # Load configuration from file or use defaults
         if os.path.exists(config_path):
             with open(config_path, 'r') as f:
-                self.config_data = json.load(f)
+                self.config = json.load(f)
         else:
-            self.config_data = self.default_config()
+            self.config = self.default_config()
+        
+        # Apply CLI argument overrides
         self._apply_cli_overrides()
+
+        # Validate the final configuration
         self._validate_config()
+
+        # Prepare output directories
         self._prepare_directories()
 
     def default_config(self):
+        """
+        Default configuration with classical and quantum-specific parameters.
+        """
         return {
-            "mode": "quantum",
+            "mode": "classical",
             "epochs": 5,
             "batch_size": 32,
             "optimizer": "adam",
             "learning_rate": 0.001,
+            "results_dir": "results",
             "quantum": {
                 "encoding": "angle",
                 "num_qubits": 4,
                 "circuit_depth": 1,
                 "entanglement": "linear",
                 "noise_level": 0.0
-            },
-            "results_dir": "results"
+            }
         }
 
     def _apply_cli_overrides(self):
-        if 'mode' in self.cli_args:
-            self.config_data['mode'] = self.cli_args['mode']
-        if 'epochs' in self.cli_args:
-            self.config_data['epochs'] = int(self.cli_args['epochs'])
-        if 'batch_size' in self.cli_args:
-            self.config_data['batch_size'] = int(self.cli_args['batch_size'])
-        if 'optimizer' in self.cli_args:
-            self.config_data['optimizer'] = self.cli_args['optimizer']
-        if 'learning_rate' in self.cli_args:
-            self.config_data['learning_rate'] = float(self.cli_args['learning_rate'])
+        """
+        Override configuration values with CLI arguments if provided.
+        """
+        for key, value in self.cli_args.items():
+            if key in self.config:
+                self.config[key] = self._cast_type(value, type(self.config[key]))
+            elif key in self.config.get('quantum', {}):
+                self.config['quantum'][key] = self._cast_type(value, type(self.config['quantum'][key]))
+
+    def _cast_type(self, value, target_type):
+        """
+        Cast CLI argument values to the correct type.
+        """
+        try:
+            return target_type(value)
+        except (ValueError, TypeError):
+            return value
 
     def _validate_config(self):
-        mode = self.config_data.get('mode', 'classical')
+        """
+        Validate the configuration to ensure all parameters are correct.
+        """
+        mode = self.config.get('mode')
         if mode not in ['classical', 'quantum']:
             raise ValueError("Invalid mode. Must be 'classical' or 'quantum'.")
-        epochs = self.config_data.get('epochs', 10)
+        
+        epochs = self.config.get('epochs')
         if not isinstance(epochs, int) or epochs <= 0:
-            raise ValueError("epochs must be a positive integer.")
-        batch_size = self.config_data.get('batch_size', 32)
+            raise ValueError("Epochs must be a positive integer.")
+        
+        batch_size = self.config.get('batch_size')
         if not isinstance(batch_size, int) or batch_size <= 0:
-            raise ValueError("batch_size must be a positive integer.")
-        lr = self.config_data.get('learning_rate', 0.001)
-        if not isinstance(lr, float) and not isinstance(lr, int):
-            raise ValueError("learning_rate must be a float.")
-        if lr <= 0:
-            raise ValueError("learning_rate must be > 0.")
-
-        qconf = self.config_data.get('quantum', {})
-        nq = qconf.get('num_qubits', 4)
-        if not isinstance(nq, int) or nq <= 0:
-            raise ValueError("Invalid num_qubits.")
-        cd = qconf.get('circuit_depth', 1)
-        if not isinstance(cd, int) or cd <= 0:
-            raise ValueError("Invalid circuit_depth.")
-        ent = qconf.get('entanglement', 'linear')
-        if ent not in ['linear', 'circular']:
-            raise ValueError("Invalid entanglement.")
-        enc = qconf.get('encoding', 'angle')
-        if enc not in ['angle', 'amplitude', 'basis']:
-            raise ValueError("Invalid encoding.")
-        noise = qconf.get('noise_level', 0.0)
-        if (not isinstance(noise, (float,int))) or noise < 0:
-            raise ValueError("Invalid noise_level.")
+            raise ValueError("Batch size must be a positive integer.")
+        
+        learning_rate = self.config.get('learning_rate')
+        if not isinstance(learning_rate, (float, int)) or learning_rate <= 0:
+            raise ValueError("Learning rate must be a positive number.")
+        
+        if mode == 'quantum':
+            quantum_config = self.config.get('quantum', {})
+            num_qubits = quantum_config.get('num_qubits')
+            if not isinstance(num_qubits, int) or num_qubits <= 0:
+                raise ValueError("Number of qubits must be a positive integer.")
+            
+            circuit_depth = quantum_config.get('circuit_depth')
+            if not isinstance(circuit_depth, int) or circuit_depth <= 0:
+                raise ValueError("Circuit depth must be a positive integer.")
+            
+            entanglement = quantum_config.get('entanglement')
+            if entanglement not in ['linear', 'circular']:
+                raise ValueError("Entanglement must be 'linear' or 'circular'.")
+            
+            encoding = quantum_config.get('encoding')
+            if encoding not in ['angle', 'amplitude', 'basis']:
+                raise ValueError("Encoding must be 'angle', 'amplitude', or 'basis'.")
+            
+            noise_level = quantum_config.get('noise_level')
+            if not isinstance(noise_level, (float, int)) or noise_level < 0:
+                raise ValueError("Noise level must be a non-negative number.")
 
     def _prepare_directories(self):
-        base_dir = self.config_data.get('results_dir', 'results')
+        """
+        Prepare required output directories for results.
+        """
+        results_dir = self.config.get('results_dir', 'results')
         subdirs = ['logs', 'plots', 'raw']
-        if not os.path.exists(base_dir):
-            os.makedirs(base_dir)
-        for sd in subdirs:
-            d = os.path.join(base_dir, sd)
-            if not os.path.exists(d):
-                os.makedirs(d)
+        os.makedirs(results_dir, exist_ok=True)
+        for subdir in subdirs:
+            os.makedirs(os.path.join(results_dir, subdir), exist_ok=True)
 
     def get(self, key, default=None):
-        return self.config_data.get(key, default)
+        """
+        Retrieve a value from the configuration.
+        """
+        return self.config.get(key, default)
 
     def get_quantum_param(self, key, default=None):
-        return self.config_data.get('quantum', {}).get(key, default)
+        """
+        Retrieve a quantum-specific parameter from the configuration.
+        """
+        return self.config.get('quantum', {}).get(key, default)

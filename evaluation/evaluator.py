@@ -35,6 +35,7 @@ class Evaluator:
         self.model.eval()
         all_preds = []
         all_labels = []
+        all_probs = []  # To store probabilities
         batch_size = 256
         with torch.no_grad():
             for i in range(0, x_test.size(0), batch_size):
@@ -42,12 +43,20 @@ class Evaluator:
                 batch_y = y_test[i:i+batch_size]
                 outputs = self.model(batch_x)
                 preds = outputs.argmax(dim=1).cpu().numpy()
+                probs = outputs.cpu().numpy()  # Probabilities for each class
                 labels_np = batch_y.cpu().numpy()
-                all_preds.extend(preds)
-                all_labels.extend(labels_np)
+                all_preds.extend(preds.tolist())      # Ensure Python list format
+                all_labels.extend(labels_np.tolist())  # Ensure Python list format
+                all_probs.extend(probs.tolist())      # Ensure Python list format
 
         # Classification report
-        report = classification_report(all_labels, all_preds, digits=4, output_dict=True)
+        report = classification_report(
+            all_labels,
+            all_preds,
+            digits=4,
+            output_dict=True,
+            zero_division=0  # Handle undefined metrics gracefully
+        )
         report_path = os.path.join(self.reports_dir, f'{self.mode}_classification_report.json')
         with open(report_path, 'w') as f:
             json.dump(report, f, indent=4)
@@ -55,13 +64,30 @@ class Evaluator:
         self.metrics = {
             "predictions": all_preds,
             "labels": all_labels,
-            "accuracy": report['accuracy']
+            "probabilities": all_probs,
+            "accuracy": float(report['accuracy'])  # Ensure Python float type
         }
 
-        # If both classical and quantum exist, merge:
+        # If both classical and quantum reports exist, attempt to combine them
         self._combine_reports_if_possible()
 
+        # Save a detailed probability report for further analysis
+        self.save_probability_report()
+
+    def save_probability_report(self):
+        """
+        Save detailed probability distributions for each test sample.
+        This can be used for further analysis or visualization.
+        """
+        probability_report_path = os.path.join(self.reports_dir, f'{self.mode}_probability_report.json')
+        with open(probability_report_path, 'w') as f:
+            json.dump(self.metrics, f, indent=4)
+
     def _combine_reports_if_possible(self):
+        """
+        Combine classical and quantum classification reports if both exist.
+        This facilitates easy comparison between the two models.
+        """
         c_report_path = os.path.join(self.reports_dir, 'classical_classification_report.json')
         q_report_path = os.path.join(self.reports_dir, 'quantum_classification_report.json')
         combined_path = os.path.join(self.reports_dir, 'combined_report.json')
@@ -76,13 +102,16 @@ class Evaluator:
                 json.dump(combined, f, indent=4)
 
     def save_combined_report(self):
-        # Already combined above if possible
-        pass
+        """
+        Public method to save the combined classification report.
+        It calls the internal method to perform the combination.
+        """
+        self._combine_reports_if_possible()
 
     def plot_confusion_matrix(self, normalize=True, save=True):
         """
-        Plot and compare confusion matrices. If both classical and quantum runs available,
-        plot difference matrix or side-by-side comparison.
+        Plot and save the confusion matrix for the current mode.
+        If both classical and quantum reports are available, it can be extended to plot differences.
         """
         cm = confusion_matrix(self.metrics['labels'], self.metrics['predictions'])
         if normalize:
@@ -100,11 +129,16 @@ class Evaluator:
         else:
             plt.show()
 
-        # If both classical and quantum exist, create difference matrix
-        c_report_path = os.path.join(self.reports_dir, 'classical_classification_report.json')
-        q_report_path = os.path.join(self.reports_dir, 'quantum_classification_report.json')
-        if os.path.exists(c_report_path) and os.path.exists(q_report_path) and self.mode == 'quantum':
-            # Load classical predictions to create difference matrix
-            # This requires storing classical predictions similarly
-            # For simplicity, assume we only difference plot if we have predictions saved similarly.
-            pass  # Implement if needed
+        # If both classical and quantum reports exist and mode is quantum, plot combined confusion matrix
+        if self.mode == 'quantum':
+            c_report_path = os.path.join(self.reports_dir, 'classical_classification_report.json')
+            q_report_path = os.path.join(self.reports_dir, 'quantum_classification_report.json')
+            if os.path.exists(c_report_path) and os.path.exists(q_report_path):
+                with open(c_report_path) as cf:
+                    c_report = json.load(cf)
+                with open(q_report_path) as qf:
+                    q_report = json.load(qf)
+                # Assuming that the confusion matrices can be reloaded or recalculated
+                # For simplicity, this part is left as a placeholder
+                # You can implement side-by-side confusion matrices if needed
+                pass  # Implement additional plotting if required

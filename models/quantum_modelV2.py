@@ -1,4 +1,4 @@
-# File: models/quantum_model.py
+# File: models/quantum_modelV2.py
 import torch
 import torch.nn as nn
 import pennylane as qml
@@ -43,11 +43,13 @@ def build_quantum_model():
             self.preprocess = nn.Linear(784, num_qubits)
             self.quantum_layer = quantum_layer
             self.classical_layer = nn.Linear(num_qubits, 10)
+            self.softmax = nn.Softmax(dim=1)
 
         def forward(self, x):
             x = self.preprocess(x)  # (batch_size, num_qubits)
             x = self.quantum_layer(x)  # (batch_size, num_qubits)
             x = self.classical_layer(x)  # (batch_size, 10)
+            x = self.softmax(x)  # (batch_size, 10) - probabilities
             return x
 
     return QuantumModel()

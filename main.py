@@ -16,7 +16,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Quantum-Classical Hybrid Model Training")
     parser.add_argument('--mode', type=str, default='quantum', choices=['classical', 'quantum'],
                         help='Mode: classical or quantum')
-    parser.add_argument('--epochs', type=int, default=5, help='Number of epochs')
+    parser.add_argument('--epochs', type=int, default=3, help='Number of epochs')
     parser.add_argument('--batch_size', type=int, default=32, help='Batch size')
     parser.add_argument('--optimizer', type=str, default='adam', choices=['adam', 'sgd'], help='Optimizer type')
     parser.add_argument('--learning_rate', type=float, default=0.001, help='Learning rate')

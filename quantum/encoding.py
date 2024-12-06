@@ -6,26 +6,44 @@ class QuantumDataEncoder:
         self.encoding_type = encoding_type.lower()
 
     def encode(self, x, wires):
-        # x is a 1D array of features, wires is the list of qubits
+        x = np.array(x, dtype=float)
+        num_qubits = len(wires)
+
         if self.encoding_type == 'angle':
-            # Angle Encoding: encode features as rotation angles
-            # Normalize x to [0, pi] to ensure full usage of rotation
+            # Check non-empty input
+            if x.size == 0:
+                raise ValueError("Input vector is empty for angle encoding.")
+            # Normalize for angle encoding
             norm_x = np.pi * (x - x.min()) / (x.max() - x.min() + 1e-9)
             for i, val in enumerate(norm_x):
-                qml.RX(val, wires=wires[i % len(wires)])
+                qml.RX(val, wires=wires[i % num_qubits])
+
         elif self.encoding_type == 'amplitude':
-            # Amplitude Encoding:
-            # Requires normalized vector. We'll assume x is already normalized
-            # If dimension mismatches qubit count, pad with zeros
+            # Match size to num_qubits
+            if x.size < num_qubits:
+                padded = np.zeros(num_qubits)
+                padded[:x.size] = x
+                x = padded
+            elif x.size > num_qubits:
+                x = x[:num_qubits]
             vector = x / np.sqrt((x ** 2).sum() + 1e-9)
-            qml.AmplitudeEmbedding(vector=vector, wires=wires, normalize=True)
+            # Use features= instead of vector=
+            qml.AmplitudeEmbedding(features=vector, wires=wires, normalize=False)
+
         elif self.encoding_type == 'basis':
-            # Basis Encoding:
-            # Convert the feature vector into a binary index and prepare a basis state
-            # This is simplistic and generally requires binary features
-            idx = int(''.join(str(int(val > 0.5)) for val in x), 2) if len(x) > 0 else 0
-            qml.BasisState(np.binary_repr(idx, width=len(wires)), wires=wires)
+            # Ensure binary input
+            if not np.all((x == 0) | (x == 1)):
+                x = (x > 0.5).astype(int)
+            if x.size < num_qubits:
+                bin_padded = np.zeros(num_qubits, dtype=int)
+                bin_padded[:x.size] = x
+                x = bin_padded
+            elif x.size > num_qubits:
+                x = x[:num_qubits]
+            idx_str = ''.join(str(b) for b in x)
+            qml.BasisState(np.array(list(map(int, idx_str)), dtype=int), wires=wires)
+
         else:
-            # Default to angle encoding if unknown
+            # Default to angle if unknown
             self.encoding_type = 'angle'
             self.encode(x, wires)

@@ -7,22 +7,22 @@ from quantum.quantum_circuit import QuantumCircuitBuilder
 from utils.config import Config
 
 class QuantumKerasLayer(layers.Layer):
-    def __init__(self, num_qubits, circuit_depth, entanglement, encoding_type, **kwargs):
+    def __init__(self, num_qubits, circuit_depth, entanglement, encoding_type, noise_level=0.0, **kwargs):
         super().__init__(**kwargs)
         self.num_qubits = num_qubits
         self.circuit_depth = circuit_depth
         self.entanglement = entanglement
         self.encoding_type = encoding_type
+        self.noise_level = noise_level
+
         self.encoder = QuantumDataEncoder(encoding_type=self.encoding_type)
         self.circuit_builder = QuantumCircuitBuilder(num_qubits=self.num_qubits,
                                                      circuit_depth=self.circuit_depth,
                                                      entanglement=self.entanglement,
-                                                     encoding_type=self.encoding_type)
+                                                     encoding_type=self.encoding_type,
+                                                     noise_level=self.noise_level)
         self.qnode = self.circuit_builder.build_qnode(self.encoder)
 
-        # Initialize trainable weights
-        self.num_weights = self.circuit_depth * self.num_qubits * 3
-        # Weights shaped as [circuit_depth, num_qubits, 3]
         init_shape = (self.circuit_depth, self.num_qubits, 3)
         self.w = self.add_weight(name='quantum_weights',
                                  shape=init_shape,
@@ -30,20 +30,24 @@ class QuantumKerasLayer(layers.Layer):
                                  trainable=True)
 
     def call(self, inputs):
-        # inputs is expected to be of shape [batch_size, feature_dim]
-        # We will run the qnode for each sample in the batch
-        # Map_fn or vectorization might be needed for efficiency.
-        # Here we use tf.vectorized_map for simplicity.
-        def circuit_map(x):
-            # x is a single sample
-            return self.qnode(x, self.w)
+        # Convert tensor to numpy for batch execution with qml.batch_execute
+        batch_size = tf.shape(inputs)[0]
+        inputs_np = tf.numpy_function(lambda x: x, [inputs], tf.float64)
+        inputs_np = tf.reshape(inputs_np, [batch_size, -1])
 
-        # vectorized_map applies the circuit to each sample in the batch
-        outputs = tf.vectorized_map(circuit_map, inputs)
-        # outputs shape: [batch_size, num_qubits]
-        # For classification, we might reduce over qubits
-        # Let's just take mean over qubits to get a single logit
-        return tf.reduce_mean(outputs, axis=1, keepdims=True)
+        def run_batch(inputs_array, weights_array):
+            inputs_list = inputs_array.tolist()
+            # weights_array is constant for the batch
+            tapes = []
+            for sample in inputs_list:
+                self.qnode.construct([np.array(sample, dtype=float), np.array(weights_array, dtype=float)], {})
+                tapes.append(self.qnode.qtape)
+            res = qml.interfaces.batch_execute(self.qnode.device, tapes, gradient_fn=None)
+            return np.array(res, dtype=float)
+
+        outputs = tf.numpy_function(run_batch, [inputs_np, self.w], tf.float64)
+        outputs = tf.reshape(outputs, [batch_size, self.num_qubits])
+        return tf.cast(outputs, tf.float32)
 
 def build_quantum_model():
     config = Config()
@@ -51,16 +55,16 @@ def build_quantum_model():
     circuit_depth = config.get_quantum_param('circuit_depth', 1)
     entanglement = config.get_quantum_param('entanglement', 'linear')
     encoding_type = config.get_quantum_param('encoding', 'angle')
+    noise_level = config.get_quantum_param('noise_level', 0.0)
 
-    inputs = tf.keras.Input(shape=(28*28,))  # For MNIST flattened input
-    # Optionally add classical preprocessing layers here, e.g. Dense for dimension reduction
-    # For simplicity, directly feed to quantum layer:
+    inputs = tf.keras.Input(shape=(28*28,))
     q_layer = QuantumKerasLayer(num_qubits=num_qubits,
                                 circuit_depth=circuit_depth,
                                 entanglement=entanglement,
-                                encoding_type=encoding_type)(inputs)
+                                encoding_type=encoding_type,
+                                noise_level=noise_level)(inputs)
 
-    # Add a classical output layer
+    # Use a Dense layer to map the [batch_size, num_qubits] outputs to 10 classes
     outputs = tf.keras.layers.Dense(10, activation='softmax')(q_layer)
     model = tf.keras.Model(inputs=inputs, outputs=outputs)
     return model

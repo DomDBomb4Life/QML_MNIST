@@ -37,7 +37,7 @@ class Config:
             "results_dir": "results",
             "quantum": {
                 "encoding": "angle",
-                "num_qubits": 4,
+                "num_qubits": 8,
                 "circuit_depth": 1,
                 "entanglement": "linear",
                 "noise_level": 0.0

@@ -8,7 +8,7 @@ from utils.config import Config
 from utils.data_loader import DataLoader
 from models.classical_model import build_classical_model
 from models.quantum_modelV2 import build_quantum_model
-from training.trainer import Trainer
+from training.trainer import QuantumTrainer as Trainer
 from evaluation.evaluator import Evaluator
 from utils.logger import Logger
 

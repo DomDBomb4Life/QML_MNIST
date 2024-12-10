@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 
 def main():
     config = Config()
-    encoding_types = ['angle', 'amplitude', 'basis']
+    encoding_types = [ 'amplitude', 'basis']
     entanglements = ['linear', 'circular']
 
     # Test all combinations to validate circuit output

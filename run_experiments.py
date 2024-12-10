@@ -1,31 +1,27 @@
-# File: run_experiments.py
 import os
 import json
-import itertools
 import time
 import torch
+import matplotlib.pyplot as plt
 
 from utils.config import Config
 from utils.data_loader import DataLoader
 from models.quantum_modelV2 import build_quantum_model
 from training.trainer import QuantumTrainer
-from utils.hash_generator import generate_config_hash
 
 
-def main():
-    # param_grid = {
-    #     "num_qubits": [2, 4, 8],
-    #     "circuit_depth": [1, 2],
-    #     "entanglement": ["linear", "circular"],
-    #     "encoding": ["angle", "amplitude"],
-    #     "noise_level": [0.0, 0.1]
-    # }
-    param_grid = {
-        "num_qubits": [2, 4, 8, 16, 32]
-    }
+def _create_experiment_dir_name(param_name, param_value):
+    """Create a directory name based on the primary parameter being varied."""
+    return f"{param_name}_{param_value}"
+
+
+def main(primary_param, values):
+    # Define the primary hyperparameter and its range of values
+    primary_param = "noise_level"  # Change this to focus on a different hyperparameter
+    param_grid = {primary_param: values}
 
     results_dir = "results"
-    experiments_dir = os.path.join(results_dir, "experiments")
+    experiments_dir = os.path.join(results_dir, "experiments/"+primary_param)
     os.makedirs(experiments_dir, exist_ok=True)
 
     base_config = Config()
@@ -35,38 +31,32 @@ def main():
     base_config.config["optimizer"] = "adam"
     base_config.config["learning_rate"] = 0.001
 
-    keys = list(param_grid.keys())
-    param_combinations = list(itertools.product(*[param_grid[k] for k in keys]))
-
     data_loader = DataLoader()
     (x_train, y_train), (x_test, y_test) = data_loader.load_data()
 
-    summary_path = os.path.join(experiments_dir, "experiment_summary.json")
-    experiment_summaries = []
-    if os.path.exists(summary_path):
-        with open(summary_path, 'r') as f:
-            experiment_summaries = json.load(f)
+    for param_value in param_grid[primary_param]:
+        param_values = {
+            "num_qubits": 10,
+            "circuit_depth": 1,
+            "entanglement": "linear",
+            "encoding": "amplitude",
+            "noise_level": 0.0,
+            primary_param: param_value,
 
-    existing_hashes = {exp["id"]: exp for exp in experiment_summaries}
+        }
 
-    for combo in param_combinations:
-        param_values = dict(zip(keys, combo))
-        for key, value in param_values.items():
-            base_config.config["quantum"][key] = value
-
-        hash_id = generate_config_hash(param_values)
-        config_dir = os.path.join(experiments_dir, hash_id)
+        # Create a directory name based on the primary parameter
+        dir_name = _create_experiment_dir_name(primary_param, param_value)
+        config_dir = os.path.join(experiments_dir, dir_name)
         os.makedirs(config_dir, exist_ok=True)
 
-        print(f"\n[INFO] Running Experiment {hash_id} with Parameters:")
-        for key, value in param_values.items():
-            print(f"  {key}: {value}")
+        print(f"[INFO] Running Experiment {dir_name} with {param_values}")
 
         config_path = os.path.join(config_dir, "config.json")
-        with open(config_path, 'w') as f:
+        with open(config_path, "w") as f:
             json.dump({"parameters": param_values}, f, indent=4)
 
-        model = build_quantum_model()
+        model = build_quantum_model(param_values)
 
         trainer = QuantumTrainer(
             model=model,
@@ -78,60 +68,15 @@ def main():
             optimizer=base_config.config["optimizer"],
             learning_rate=base_config.config["learning_rate"],
             results_dir=config_dir,
-            log_every_batch=True,
-            track_gradients=True,
-            track_time=True
         )
 
-        start_time = time.time()
         trainer.train()
         trainer.evaluate()
-        elapsed_time = time.time() - start_time
 
-        logs_path = os.path.join(config_dir, "logs", "quantum_training_logs.json")
-        if os.path.exists(logs_path):
-            with open(logs_path, 'r') as f:
-                logs = json.load(f)
-            final_train_loss = logs["train_loss"][-1]
-            final_train_acc = logs["train_accuracy"][-1] * 100
-            final_val_loss = logs["val_loss"][-1]
-            final_val_acc = logs["val_accuracy"][-1] * 100
-        else:
-            final_train_loss = final_train_acc = final_val_loss = final_val_acc = None
-
-        model_path = os.path.join(config_dir, "model.pth")
-        torch.save(model.state_dict(), model_path)
-
-        experiment_summary = {
-            "id": hash_id,
-            "parameters": param_values,
-            "final_metrics": {
-                "train_loss": final_train_loss,
-                "val_loss": final_val_loss,
-                "train_acc": final_train_acc,
-                "val_acc": final_val_acc,
-                "runtime": elapsed_time
-            },
-            "paths": {
-                "config": config_path,
-                "logs": logs_path,
-                "model": model_path
-            }
-        }
-
-        if hash_id in existing_hashes:
-            existing_hashes[hash_id].update(experiment_summary)
-        else:
-            experiment_summaries.append(experiment_summary)
-
-        print(f"[INFO] Completed Experiment {hash_id}: "
-              f"Train Loss={final_train_loss}, Val Acc={final_val_acc:.2f}%, Runtime={elapsed_time:.2f}s")
-
-    with open(summary_path, 'w') as f:
-        json.dump(experiment_summaries, f, indent=4)
-
-    print("\n[INFO] All experiments completed. Summary saved at:", summary_path)
+        print(f"[INFO] Completed Experiment: {dir_name}")
 
 
-if __name__ == '__main__':
-    main()
+if __name__ == "__main__":
+    param = "noise_level"
+    values = [0.0, 0.1, 0.2, 0.3, 0.4]
+    main(param, values)

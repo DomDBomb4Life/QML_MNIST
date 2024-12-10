@@ -10,7 +10,8 @@ import torch.optim as optim
 
 class BaseTrainer:
     """
-    Base Trainer class to handle common training functionality for both classical and quantum models.
+    Base Trainer class. Does not rely on Config().
+    All parameters come from constructor arguments.
     """
     def __init__(self, model, train_data, test_data, mode='classical', epochs=10, batch_size=32,
                  optimizer='adam', learning_rate=0.001, results_dir='results',
@@ -29,7 +30,7 @@ class BaseTrainer:
         (x_train, y_train) = train_data
         (x_test, y_test) = test_data
 
-        # Convert numpy arrays to PyTorch tensors if necessary
+        # Convert data to tensors if needed
         if not isinstance(x_train, torch.Tensor):
             x_train = torch.from_numpy(x_train).float()
         if not isinstance(y_train, torch.Tensor):
@@ -55,7 +56,7 @@ class BaseTrainer:
         os.makedirs(logs_dir, exist_ok=True)
         self.logs_path = os.path.join(logs_dir, f"{self.mode}_training_logs.json")
 
-        # Load existing logs or initialize new logs
+        # If logs exist, load them; else initialize
         if os.path.exists(self.logs_path):
             with open(self.logs_path, 'r') as f:
                 self.logs = json.load(f)
@@ -66,7 +67,7 @@ class BaseTrainer:
                 "train_accuracy": [],
                 "val_loss": [],
                 "val_accuracy": [],
-                "batch_metrics": []  # Store detailed per-batch metrics if enabled
+                "batch_metrics": []
             }
 
     def _get_optimizer(self):
@@ -107,29 +108,30 @@ class BaseTrainer:
             total_samples = 0
             epoch_start_time = time.time() if self.track_time else None
 
-            batch_metrics = []  # Store batch-level metrics if enabled
+            epoch_batch_metrics = []  # store batch-level metrics if enabled
 
             for batch_i, (inputs, labels) in enumerate(self.train_loader, start=1):
                 batch_start_time = time.time() if self.track_time else None
-
                 inputs, labels = inputs.to(self.device), labels.to(self.device)
                 self.optimizer.zero_grad()
+                if (batch_i % 100) == 0:
+                    print("Batch: ", batch_i)
 
                 outputs = self.model(inputs)
                 loss = self.loss_fn(outputs, labels)
                 loss.backward()
 
-                # Track gradient norms if required
-                quantum_grad_norm = 0.0
-                classical_grad_norm = 0.0
+                # Gradient norms if track_gradients=True
+                q_grad_norm = 0.0
+                c_grad_norm = 0.0
                 if self.track_gradients:
-                    for name, param in self.model.named_parameters():
-                        if param.grad is not None:
-                            grad_norm = param.grad.norm().item()
+                    for name, p in self.model.named_parameters():
+                        if p.grad is not None:
+                            norm = p.grad.data.norm().item()
                             if "quantum_layer" in name:
-                                quantum_grad_norm += grad_norm
+                                q_grad_norm += norm
                             else:
-                                classical_grad_norm += grad_norm
+                                c_grad_norm += norm
 
                 self.optimizer.step()
 
@@ -138,17 +140,17 @@ class BaseTrainer:
                 train_correct += (preds == labels).sum().item()
                 total_samples += inputs.size(0)
 
-                # Track batch-level metrics if required
                 if self.log_every_batch:
-                    batch_metrics.append({
+                    batch_entry = {
                         "epoch": epoch,
                         "batch": batch_i,
                         "batch_loss": loss.item(),
                         "batch_accuracy": (preds == labels).sum().item() / inputs.size(0),
-                        "batch_time": time.time() - batch_start_time if self.track_time else None,
-                        "quantum_grad_norm": quantum_grad_norm if self.track_gradients else None,
-                        "classical_grad_norm": classical_grad_norm if self.track_gradients else None
-                    })
+                        "batch_time": (time.time() - batch_start_time) if self.track_time else None,
+                        "quantum_grad_norm": q_grad_norm if self.track_gradients else None,
+                        "classical_grad_norm": c_grad_norm if self.track_gradients else None
+                    }
+                    epoch_batch_metrics.append(batch_entry)
 
             avg_train_loss = train_loss / total_samples
             avg_train_acc = train_correct / total_samples
@@ -160,7 +162,7 @@ class BaseTrainer:
             self.logs["val_loss"].append(val_loss)
             self.logs["val_accuracy"].append(val_acc)
             if self.log_every_batch:
-                self.logs["batch_metrics"].extend(batch_metrics)
+                self.logs["batch_metrics"].extend(epoch_batch_metrics)
 
             epoch_time = time.time() - epoch_start_time if self.track_time else None
             print(f"Epoch {epoch}/{self.epochs} | "
@@ -176,8 +178,8 @@ class BaseTrainer:
 
 
 class ClassicalTrainer(BaseTrainer):
-    pass  # Inherits all functionality
+    pass
 
 
 class QuantumTrainer(BaseTrainer):
-    pass  # Adds potential for quantum-specific functionality if needed
+    pass

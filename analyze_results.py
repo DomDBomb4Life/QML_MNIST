@@ -1,74 +1,75 @@
-# File: analyze_results.py
 import os
 import json
-import argparse
 import matplotlib.pyplot as plt
-import seaborn as sns
 
-def load_experiment_summary(experiments_dir="results/experiments"):
-    summary_path = os.path.join(experiments_dir, "experiment_summary.json")
-    if not os.path.exists(summary_path):
-        print("[ERROR] No experiment_summary.json found.")
-        return []
-    with open(summary_path, 'r') as f:
-        return json.load(f)
+params = ["num_qubits", "circuit_depth", "encoding", "entanglement", "noise_level"]
+def main(param):
+    results_dir = "results"
+  
+    experiments_dir = os.path.join(results_dir, "experiments/"+param)
 
-def filter_experiments(experiments, filter_key=None, filter_value=None):
-    if filter_key and filter_value is not None:
-        # Try to convert filter_value to float or int if possible
-        try:
-            filter_value = float(filter_value)
-            # If it's int convertible, do that:
-            if filter_value.is_integer():
-                filter_value = int(filter_value)
-        except:
-            pass
-        filtered = [exp for exp in experiments if exp["parameters"].get(filter_key) == filter_value]
-        return filtered
-    return experiments
-
-def plot_metric_vs_parameter(experiments, metric="val_acc", param="num_qubits", save_dir="results/summary_graphs"):
-    os.makedirs(save_dir, exist_ok=True)
-
-    # Extract param-value and metric-value
-    data_points = []
-    for exp in experiments:
-        val = exp["parameters"].get(param)
-        metric_val = exp["final_metrics"].get(metric, None)
-        if val is not None and metric_val is not None:
-            data_points.append((val, metric_val))
-    if not data_points:
-        print("[INFO] No data points to plot.")
+    if not os.path.exists(experiments_dir):
+        print("[ERROR] No experiments directory found. Run experiments first.")
         return
-    x_vals = [d[0] for d in data_points]
-    y_vals = [d[1] for d in data_points]
 
-    plt.figure(figsize=(8,6))
-    plt.scatter(x_vals, y_vals, marker='o')
-    plt.xlabel(param)
-    plt.ylabel(metric)
-    plt.title(f"{metric} vs {param}")
-    plt.grid(True)
+    all_train_curves = []
+    all_val_curves = []
 
-    plot_path = os.path.join(save_dir, f"{metric}_vs_{param}.png")
-    plt.savefig(plot_path)
+    for exp_dir in sorted(os.listdir(experiments_dir)):
+        exp_path = os.path.join(experiments_dir, exp_dir)
+        if not os.path.isdir(exp_path):
+            continue
+
+        logs_path = os.path.join(exp_path, "logs", "quantum_training_logs.json")
+        if not os.path.exists(logs_path):
+            print(f"[WARNING] No logs found for {exp_dir}. Skipping.")
+            continue
+
+        with open(logs_path, "r") as f:
+            logs = json.load(f)
+
+        epochs = logs["epoch"]
+        train_accuracy = logs["train_accuracy"]
+        val_accuracy = logs["val_accuracy"]
+
+        all_train_curves.append((exp_dir, epochs, train_accuracy))
+        all_val_curves.append((exp_dir, epochs, val_accuracy))
+
+    if not all_train_curves:
+        print("[INFO] No valid logs found. Cannot plot.")
+        return
+
+    # Create a single figure with two subplots (side by side)
+    fig, axes = plt.subplots(1, 2, figsize=(16, 6))
+
+    # Subplot for training accuracy
+    for exp_dir, epochs, train_accuracy in all_train_curves:
+        axes[0].plot(epochs, train_accuracy, label=exp_dir)
+    axes[0].set_xlabel("Epoch")
+    axes[0].set_ylabel("Accuracy")
+    axes[0].set_title("Training Accuracy")
+    axes[0].legend()
+    axes[0].grid()
+
+    # Subplot for validation accuracy
+    for exp_dir, epochs, val_accuracy in all_val_curves:
+        axes[1].plot(epochs, val_accuracy, label=exp_dir)
+    axes[1].set_xlabel("Epoch")
+    axes[1].set_ylabel("Accuracy")
+    axes[1].set_title("Validation Accuracy")
+    axes[1].legend()
+    axes[1].grid()
+
+    # Save combined plot
+    combined_plot_path = os.path.join(results_dir, param+"_graph.png")
+    plt.tight_layout()
+    plt.savefig(combined_plot_path)
     plt.close()
-    print(f"[INFO] Plot saved at {plot_path}")
 
-def main():
-    parser = argparse.ArgumentParser(description="Analyze and visualize experiment results.")
-    parser.add_argument('--filter_key', type=str, help='Parameter key to filter by')
-    parser.add_argument('--filter_value', help='Value of parameter to filter')
-    parser.add_argument('--metric', type=str, default='val_acc', help='Metric to plot (e.g., val_acc, train_acc, val_loss)')
-    parser.add_argument('--param', type=str, default='num_qubits', help='Parameter to plot against (e.g., num_qubits)')
-    args = parser.parse_args()
+    print(f"[INFO] Combined training and validation accuracy plot saved at: {combined_plot_path}")
 
-    experiments = load_experiment_summary()
-    if not experiments:
-        return
 
-    filtered_exps = filter_experiments(experiments, args.filter_key, args.filter_value)
-    plot_metric_vs_parameter(filtered_exps, metric=args.metric, param=args.param)
-
-if __name__ == '__main__':
-    main()
+if __name__ == "__main__":
+    main("noise_level")
+    # for param in params:
+    #     main(param)

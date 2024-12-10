@@ -3,22 +3,22 @@ import torch
 import torch.nn as nn
 import pennylane as qml
 from pennylane.qnn.torch import TorchLayer
-from utils.config import Config
 
-def build_quantum_model():
+def build_quantum_model(param_values):
     """
-    Quantum-classical hybrid model with classical preprocessing.
+    Build quantum model using directly passed parameters in `param_values` dict:
+    Keys: 'num_qubits', 'circuit_depth', 'entanglement', 'encoding', 'noise_level'
     """
-    config = Config()
-    num_qubits = config.get_quantum_param('num_qubits', 4)
-    circuit_depth = config.get_quantum_param('circuit_depth', 1)
-    entanglement = config.get_quantum_param('entanglement', 'linear')
-
+    num_qubits = param_values["num_qubits"]
+    circuit_depth = param_values["circuit_depth"]
+    entanglement = param_values["entanglement"]
+    # encoding and noise_level can be used if needed for more advanced circuits
+    
     dev = qml.device("default.qubit", wires=num_qubits)
 
     @qml.qnode(dev, interface="torch")
     def qnode(inputs, weights):
-        # Angle encoding
+        # Assume encoding is angle by default; can extend if encoding logic needed
         for i in range(num_qubits):
             qml.RX(inputs[:, i] * torch.pi, wires=i)
 
@@ -30,7 +30,10 @@ def build_quantum_model():
                 qml.RZ(layer_weights[i, 2], wires=i)
             if entanglement == "linear":
                 for i in range(num_qubits - 1):
-                    qml.CNOT(wires=[i, i + 1])
+                    qml.CNOT(wires=[i, i+1])
+            elif entanglement == "circular":
+                for i in range(num_qubits):
+                    qml.CNOT(wires=[i, (i+1)%num_qubits])
 
         return [qml.expval(qml.PauliZ(i)) for i in range(num_qubits)]
 
@@ -46,10 +49,10 @@ def build_quantum_model():
             self.softmax = nn.Softmax(dim=1)
 
         def forward(self, x):
-            x = self.preprocess(x)  # (batch_size, num_qubits)
-            x = self.quantum_layer(x)  # (batch_size, num_qubits)
-            x = self.classical_layer(x)  # (batch_size, 10)
-            x = self.softmax(x)  # (batch_size, 10) - probabilities
+            x = self.preprocess(x)         # (batch_size, num_qubits)
+            x = self.quantum_layer(x)      # (batch_size, num_qubits)
+            x = self.classical_layer(x)    # (batch_size, 10)
+            x = self.softmax(x)            # probabilities
             return x
 
     return QuantumModel()

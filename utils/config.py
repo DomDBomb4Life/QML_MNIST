@@ -29,18 +29,18 @@ class Config:
         Default configuration with classical and quantum-specific parameters.
         """
         return {
-            "mode": "classical",
+            "mode": "quantum",
             "epochs": 5,
             "batch_size": 32,
             "optimizer": "adam",
             "learning_rate": 0.001,
             "results_dir": "results",
             "quantum": {
-                "encoding": "angle",
-                "num_qubits": 8,
+                "encoding": "amplitude",
+                "num_qubits": 10,
                 "circuit_depth": 1,
                 "entanglement": "linear",
-                "noise_level": 0.0
+                "noise_level": 0.3
             }
         }
 
